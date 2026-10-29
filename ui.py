@@ -1,50 +1,63 @@
 import streamlit as st
 import requests
 from PIL import Image, ImageDraw, ImageFont
-import io
 
-st.set_page_config(page_title="Edge Defect Inspection", layout="wide")
+st.set_page_config(page_title="Industrial Defect Inspection", layout="wide")
 
-st.title("🔍 Edge-Optimized Visual Defect Inspection")
-st.markdown("Upload a test frame to run inference through the containerized ONNX microservice.")
+st.title("🏭 Real-Time PCB Surface Defect Inspection")
+st.markdown("Automated edge inspection pipeline running ONNX inference to detect circuit manufacturing anomalies.")
 
 API_URL = "http://127.0.0.1:8000/v1/inspect"
+
+# Real PCB Defect Classes
+DEFECT_CLASSES = {
+    0: "missing_hole",
+    1: "mouse_bite",
+    2: "open_circuit",
+    3: "short",
+    4: "spur",
+    5: "spurious_copper"
+}
 
 col1, col2 = st.columns(2)
 
 with col1:
-    uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+    uploaded_file = st.file_uploader("Upload an inspection frame...", type=["jpg", "jpeg", "png"])
     if uploaded_file is not None:
         image = Image.open(uploaded_file)
-        st.image(image, caption="Uploaded Input Frame", use_container_width=True)
+        st.image(image, caption="Component Surface", use_container_width=True)
 
 with col2:
     if uploaded_file is not None:
-        if st.button("Run Inspection", type="primary"):
+        if st.button("Run Defect Inspection", type="primary"):
             uploaded_file.seek(0)
             files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
             
-            with st.spinner("Processing through micro-batcher..."):
+            with st.spinner("Processing through dynamic batcher & ONNX runtime..."):
                 try:
                     response = requests.post(API_URL, files=files)
                     if response.status_code == 200:
                         data = response.json()
-                        st.subheader(f"Status: {data['status']}")
-                        st.write(f"**Defects / Objects Found:** {data['defects_found']}")
+                        
+                        if data["status"] == "DEFECT_DETECTED":
+                            st.error(f"⚠️ Status: {data['status']} ({data['defects_found']} anomalies identified)")
+                        else:
+                            st.success(f"✅ Status: {data['status']} (Zero defects found)")
 
-                        # Draw bounding boxes
                         draw_img = image.copy()
                         draw = ImageDraw.Draw(draw_img)
 
                         for det in data["detections"]:
                             ymin, xmin, ymax, xmax = det["bbox"]
-                            draw.rectangle([xmin, ymin, xmax, ymax], outline="red", width=3)
-                            label = f"Class {det['class_id']}: {det['confidence']:.2f}"
-                            draw.text((xmin + 4, max(0, ymin - 12)), label, fill="red")
+                            class_name = DEFECT_CLASSES.get(det["class_id"], f"Defect-{det['class_id']}")
+                            label = f"{class_name} ({det['confidence']:.2f})"
+                            
+                            draw.rectangle([xmin, ymin, xmax, ymax], outline="#FF0033", width=3)
+                            draw.text((xmin + 4, max(0, ymin - 15)), label, fill="#FF0033")
 
-                        st.image(draw_img, caption="Inference Detections", use_container_width=True)
+                        st.image(draw_img, caption="Inspection Results Overlay", use_container_width=True)
                         st.json(data)
                     else:
-                        st.error(f"Inference server error: {response.status_code} - {response.text}")
+                        st.error(f"Inference error {response.status_code}: {response.text}")
                 except Exception as e:
-                    st.error(f"Failed to connect to API: {e}")
+                    st.error(f"Connection failure: {e}")
